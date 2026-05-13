@@ -1,6 +1,6 @@
 """
 Liver ncRNA Translational Engine — Streamlit Dashboard
-v0.2 with TCGA display support
+v0.3 with TCGA display support and human-readable context labels
 """
 
 import json
@@ -10,7 +10,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-DB_PATH = Path("ncrna_platform.db")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "ncrna_platform.db"
 
 TCGA_COLS = [
     "expr_mean_tcga_pancan",
@@ -24,6 +25,22 @@ TCGA_COLS = [
     "expr_prevalence_tcga_pancan",
     "in_tcga_pancan_expr",
 ]
+
+DISEASE_LABELS = {
+    "DIS_001": "MASLD/MASH → fibrosis/HCC",
+    "masld_mash_fibrosis_hcc": "MASLD/MASH → fibrosis/HCC",
+    "MASLD_MASH_FIBROSIS_HCC": "MASLD/MASH → fibrosis/HCC",
+    "masld_mash_hcc": "MASLD/MASH → fibrosis/HCC",
+    "liver_masld_hcc": "MASLD/MASH → fibrosis/HCC",
+}
+
+CONTEXT_LABELS = {
+    "CTX_001": "Liver tissue / hepatocyte cell context",
+    "liver_hepatocyte": "Liver tissue / hepatocyte cell context",
+    "LIVER_HEPATOCYTE": "Liver tissue / hepatocyte cell context",
+    "liver_tissue_hepatocyte": "Liver tissue / hepatocyte cell context",
+    "hepatocyte": "Liver tissue / hepatocyte cell context",
+}
 
 
 @st.cache_data(show_spinner=False)
@@ -106,11 +123,11 @@ def normalize_tier_label(value: str) -> str:
     v = str(value).strip()
     mapping = {
         "Tier1": "Tier 1 — High Confidence",
-        "Tier 2": "Tier 2 — Moderate Confidence",
-        "Tier2": "Tier 2 — Moderate Confidence",
-        "Tier 3": "Tier 3 — Exploratory",
-        "Tier3": "Tier 3 — Exploratory",
         "Tier 1": "Tier 1 — High Confidence",
+        "Tier2": "Tier 2 — Moderate Confidence",
+        "Tier 2": "Tier 2 — Moderate Confidence",
+        "Tier3": "Tier 3 — Exploratory",
+        "Tier 3": "Tier 3 — Exploratory",
     }
     return mapping.get(v, v if v else "Unspecified")
 
@@ -169,6 +186,14 @@ def make_quality_summary(row, curated_rows: pd.DataFrame) -> dict:
     }
 
 
+def display_disease_label(value: str) -> str:
+    return DISEASE_LABELS.get(str(value), str(value))
+
+
+def display_context_label(value: str) -> str:
+    return CONTEXT_LABELS.get(str(value), str(value))
+
+
 def main():
     st.set_page_config(
         page_title="Liver ncRNA Translational Engine",
@@ -208,13 +233,29 @@ def main():
     if not disease_id_opts:
         st.error("No disease_id values found in target_scores.")
         return
-    disease_sel = st.sidebar.selectbox("Disease context", options=disease_id_opts, index=0)
+
+    disease_display_map = {x: display_disease_label(x) for x in disease_id_opts}
+    disease_display_opts = [disease_display_map[x] for x in disease_id_opts]
+    selected_disease_label = st.sidebar.selectbox(
+        "Disease context",
+        options=disease_display_opts,
+        index=0,
+    )
+    disease_sel = next(k for k, v in disease_display_map.items() if v == selected_disease_label)
 
     ctx_id_opts = sorted(scores_df["context_id"].dropna().astype(str).unique().tolist())
     if not ctx_id_opts:
         st.error("No context_id values found in target_scores.")
         return
-    ctx_sel = st.sidebar.selectbox("Tissue/cell context", options=ctx_id_opts, index=0)
+
+    context_display_map = {x: display_context_label(x) for x in ctx_id_opts}
+    context_display_opts = [context_display_map[x] for x in ctx_id_opts]
+    selected_context_label = st.sidebar.selectbox(
+        "Tissue/cell context",
+        options=context_display_opts,
+        index=0,
+    )
+    ctx_sel = next(k for k, v in context_display_map.items() if v == selected_context_label)
 
     filtered_df = scores_df[
         (scores_df["confidence_tier_norm"].astype(str).isin(tier_filter))
@@ -223,7 +264,9 @@ def main():
     ].copy()
 
     filtered_df["has_curated_evidence"] = (
-        filtered_df["top_evidence"].fillna("").astype(str).str.contains("Curated liver evidence", case=False)
+        filtered_df["top_evidence"].fillna("").astype(str).str.contains(
+            "Curated liver evidence", case=False
+        )
     )
 
     if curated_only:
@@ -233,14 +276,27 @@ def main():
         st.info("No targets match the current filters.")
         return
 
+    st.caption(f"Disease context: {selected_disease_label}")
+    st.caption(f"Tissue/cell context: {selected_context_label}")
+
     filtered_df["tier_icon"] = filtered_df["confidence_tier_norm"].apply(style_confidence_tier)
-    filtered_df["Translational score"] = filtered_df["translational_score"].apply(lambda x: round(safe_float(x), 3))
-    filtered_df["Relevance"] = filtered_df["relevance_score"].apply(lambda x: round(safe_float(x), 3))
-    filtered_df["Mechanism"] = filtered_df["mechanism_score"].apply(lambda x: round(safe_float(x), 3))
-    filtered_df["Human evidence"] = filtered_df["human_evidence_score"].apply(lambda x: round(safe_float(x), 3))
+    filtered_df["Translational score"] = filtered_df["translational_score"].apply(
+        lambda x: round(safe_float(x), 3)
+    )
+    filtered_df["Relevance"] = filtered_df["relevance_score"].apply(
+        lambda x: round(safe_float(x), 3)
+    )
+    filtered_df["Mechanism"] = filtered_df["mechanism_score"].apply(
+        lambda x: round(safe_float(x), 3)
+    )
+    filtered_df["Human evidence"] = filtered_df["human_evidence_score"].apply(
+        lambda x: round(safe_float(x), 3)
+    )
 
     if "expr_mean_tcga_pancan" in filtered_df.columns:
-        filtered_df["TCGA mean"] = filtered_df["expr_mean_tcga_pancan"].apply(lambda x: round(safe_float(x), 3))
+        filtered_df["TCGA mean"] = filtered_df["expr_mean_tcga_pancan"].apply(
+            lambda x: round(safe_float(x), 3)
+        )
     else:
         filtered_df["TCGA mean"] = 0.0
 

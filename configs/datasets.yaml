@@ -1,0 +1,30 @@
+project:
+  name: "Liver ncRNA Translational Engine"
+  version: "0.2.0"
+  focus: "MASLD/MASH -> fibrosis -> HCC"
+
+sources:
+  curated_targets:
+    type: "csv"
+    path: "data/external/curated_targets.csv"
+    description: "Manually curated liver disease ncRNA candidates with evidence tiers"
+
+  lncrna_disease:
+    type: "database_reference"
+    name: "LncRNADisease v3.0"
+    url: "https://pubmed.ncbi.nlm.nih.gov/37819033/"
+    use_for:
+      - "association lookup"
+      - "causal vs general disease support"
+      - "literature provenance"
+
+  liver_reviews:
+    type: "literature_reference"
+    refs:
+      - "https://pmc.ncbi.nlm.nih.gov/articles/PMC7549373/"
+      - "https://pubmed.ncbi.nlm.nih.gov/39872125/"
+      - "https://www.sciencedirect.com/science/article/abs/pii/S0210570523004442"
+
+outputs:
+  literature_table: "db/literature_seed.json"
+  curated_summary: "outputs/tables/curated_target_summary.csv"

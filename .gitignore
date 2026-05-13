@@ -1,0 +1,10 @@
+# Large raw data files
+data/raw/*.tsv
+data/raw/*.gz
+data/raw/*.csv
+*.db
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+outputs/

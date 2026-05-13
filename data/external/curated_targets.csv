@@ -1,0 +1,11 @@
+symbol,aliases,disease_stage,disease_label,evidence_tier,direction,mechanism_note,modality_bias,cell_context,source_type,source_ref,pmid,is_contradictory,curator_note
+HNF1A-AS1,"HNF1A-OS1;HNF1AOS",MASLD,steatosis,Tier1,up,"linked to hepatic lipid metabolism and lipogenic regulation",ASO,hepatocyte,review,"PMC7549373",,0,"strong wedge candidate given liver-metabolic relevance"
+NEAT1,"MEN epsilon/beta",MASH,steatohepatitis,Tier1,up,"linked to stellate activation and inflammatory/fibrotic signaling",ASO,stellate_cell,review,"PMID:39872125",39872125,0,"strong fibrosis-stage relevance"
+MALAT1,"NEAT2;MALAT-1",HCC,hcc,Tier1,up,"widely implicated in HCC progression and recurrence biology",ASO,hepatocyte,review,"PMC7549373",,0,"high evidence but possible ubiquity risk"
+HOTAIR,"HOXC11AS2",HCC,hcc,Tier1,up,"epigenetic regulation and tumor-promoting chromatin effects",ASO,tumor_cell,review,"PMC7549373",,0,"oncology relevance high"
+HULC,"LINC00078",HCC,hcc,Tier1,up,"well-known liver cancer lncRNA with growth signaling relevance",siRNA,tumor_cell,review,"PMC7549373",,0,"classic HCC liver-enriched story"
+GAS5,"SNHG2",MASLD,metabolic_dysfunction,Tier2,down,"often described as protective or restraining pathological signaling",ASO,hepatocyte,review,"PMID:39872125",39872125,0,"protective biology candidate"
+H19,"",MASLD,steatosis,Tier2,up,"reported to promote steatosis and fibrosis-related signaling",ASO,hepatocyte,secondary_review,"AZoLifeSciences-2025",,0,"worth including due to repeated mention"
+MEG3,"",Fibrosis,fibrosis,Tier2,mixed,"reported in fibrosis-related signaling with context dependence",ASO,stellate_cell,review,"PMID:39872125",39872125,1,"flag as mixed/contradictory"
+MIAT,"GOMAFU",HCC,hcc,Tier3,mixed,"possible network-level disease relevance but weaker liver-specific evidence",ASO,tumor_cell,weak_support,"manual-curation",,0,"exploratory"
+LINC01116,"",MASH,steatohepatitis,Tier3,mixed,"limited or inconsistent support in liver disease context",biomarker,unknown,weak_support,"manual-curation",,1,"retain as contradiction/example negative"

@@ -468,8 +468,14 @@ def main():
 
         if available_cols:
             show_df = curated_rows[available_cols].copy()
+
             if "evidence_tier" in show_df.columns:
                 show_df["evidence_tier"] = show_df["evidence_tier"].apply(normalize_tier_label)
+
+            show_df["tcga_mean"] = round(safe_float(row.get("expr_mean_tcga_pancan", 0)), 3)
+            show_df["tcga_median"] = round(safe_float(row.get("expr_median_tcga_pancan", 0)), 3)
+            show_df["tcga_prevalence"] = round(safe_float(row.get("expr_prevalence_tcga_pancan", 0)), 3)
+            show_df["in_tcga"] = safe_int(row.get("in_tcga_pancan_expr", 0))
 
             st.markdown("#### Curated literature notes")
             st.dataframe(show_df, width="stretch", height=220)

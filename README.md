@@ -28,8 +28,8 @@ streamlit run app/dashboard.py
 
 ## Data Sources
 - GEO (Gene Expression Omnibus) — GSE126848 liver disease dataset
-- TCGA Pan-Cancer RNA-seq (EBPlusPlusAdjustPANCANIlluminaHiSeqV2)
-- Hand-curated knowledge graph with liver ncRNA evidence, mechanisms, and clinical flags
+- TCGA Pan-Cancer RNA-seq — EBPlusPlusAdjustPANCANIlluminaHiSeqRNASeqV2 (11,069 samples)
+- Structured knowledge graph — seeded with liver ncRNA evidence, mechanisms, and clinical flags for 12 ncRNA targets
 
 ## Author
 Beshoy Armanios, PhD MPH — Pharmacology & RNA Therapeutics

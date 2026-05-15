@@ -1,11 +1,12 @@
 """
 Liver ncRNA Translational Engine — Streamlit Dashboard
-v2.0 streamlined dashboard with:
+v2.1 streamlined dashboard with:
 - compact ranking table
 - baseline vs Geneformer-like rank traceability
 - shortlist comparison
 - focused target dossier
 - collapsible provenance and evidence sections
+- model status + ablation comparison summary
 """
 
 import json
@@ -17,6 +18,7 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "ncrna_platform.db"
+COMPARISON_SUMMARY_PATH = BASE_DIR / "output" / "comparisons" / "run_comparison_summary.md"
 
 TCGA_COLS = [
     "expr_mean_tcga_pancan",
@@ -204,6 +206,13 @@ def load_curated(db_path: Path) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(show_spinner=False)
+def load_comparison_summary(summary_path: Path) -> str:
+    if summary_path.exists():
+        return summary_path.read_text()
+    return ""
+
+
 def safe_float(value, default=0.0):
     try:
         if pd.isna(value):
@@ -364,6 +373,7 @@ def main():
 
     scores_df = load_scores(DB_PATH)
     curated_df = load_curated(DB_PATH)
+    comparison_summary = load_comparison_summary(COMPARISON_SUMMARY_PATH)
 
     if scores_df.empty:
         st.warning("No rows found in target_scores. Run the scoring pipeline first.")
@@ -389,7 +399,11 @@ def main():
         "Translational score (baseline)": "translational_score",
         "Geneformer-like score": "gf_geneformer_like_score",
     }
-    sort_choice = st.sidebar.selectbox("Sort by", options=available_sort_options, index=1 if len(available_sort_options) > 1 else 0)
+    sort_choice = st.sidebar.selectbox(
+        "Sort by",
+        options=available_sort_options,
+        index=1 if len(available_sort_options) > 1 else 0,
+    )
     sort_col = sort_label_to_col[sort_choice]
 
     disease_id_opts = sorted(scores_df["disease_id"].dropna().astype(str).unique().tolist())
@@ -464,6 +478,26 @@ def main():
     m2.metric("Top GF score", f"{safe_float(top_row['gf_geneformer_like_score']):.3f}")
     m3.metric("Rank improvers", positive_delta_n)
     m4.metric("Curated-supported", curated_n)
+
+    with st.expander("Model status and ranking interpretation", expanded=False):
+        st.markdown(
+            """
+            - Current prioritization reflects the updated scoring framework with Geneformer-like component signals.
+            - Recent training validation excluded `confidence_tier` from model features to reduce label leakage.
+            - In the ablation run, top drivers shifted toward biologically meaningful signals such as:
+              - `gf_disease_shift`
+              - `mean_abs_log2fc`
+              - `relevance_score`
+              - `gf_perturbation_impact`
+              - `specificity_score`
+            - This means ranking is now more interpretable biologically, even if predictive metrics are modestly lower than the earlier confidence-tier-influenced baseline.
+            """
+        )
+        if comparison_summary:
+            st.markdown("#### Saved run comparison summary")
+            st.markdown(comparison_summary)
+        else:
+            st.caption("No saved comparison summary found yet in output/comparisons/.")
 
     st.caption(f"Disease: {selected_disease_label} | Context: {selected_context_label} | Sorted by: {sort_choice}")
 
@@ -574,7 +608,10 @@ def main():
     with st.expander("Geneformer-like raw provenance", expanded=False):
         for component_name, component_features in FEATURE_MAPPING.items():
             feature_rows = [
-                {"Feature": feat, "Value": "NA" if pd.isna(row.get(feat, pd.NA)) else format(round(float(row.get(feat)), 4), ".4f")}
+                {
+                    "Feature": feat,
+                    "Value": "NA" if pd.isna(row.get(feat, pd.NA)) else format(round(float(row.get(feat)), 4), ".4f"),
+                }
                 if pd.notna(row.get(feat, pd.NA))
                 else {"Feature": feat, "Value": "NA"}
                 for feat in component_features

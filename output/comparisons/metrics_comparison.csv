@@ -1,0 +1,3 @@
+run_name,best_model,cv_mean_r2,final_rmse,final_mae,final_r2,final_pearson_r,confidence_tier_excluded,notes
+baseline_with_confidence_tier,RandomForestRegressor,0.765232,0.014682385516136142,0.0010746666666666869,0.5089465957985322,0.7180931913106668,False,Recovered baseline run from handoff; feature importance was dominated by confidence tier.
+ablation_without_confidence_tier,ExtraTreesRegressor,0.5422114340242521,0.015938310763691357,0.0016695000000000134,0.4213445330296134,0.6493747276824273,True,Current ablation run from output files.

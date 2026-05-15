@@ -1,8 +1,5 @@
 # Data files - too large for GitHub
 data/
-*.db
-*.db-shm
-*.db-wal
 
 # Python
 __pycache__/

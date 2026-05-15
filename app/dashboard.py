@@ -380,7 +380,7 @@ def main():
         return
 
     if "confidence_tier" not in scores_df.columns:
-        st.error("Missing confidence_tier in target_scores.")
+        st.warning("confidence_tier column missing from target_scores — some tier filtering may be unavailable.")
         return
 
     scores_df["confidence_tier_norm"] = scores_df["confidence_tier"].apply(normalize_tier_label)
@@ -410,7 +410,7 @@ def main():
     ctx_id_opts = sorted(scores_df["context_id"].dropna().astype(str).unique().tolist())
 
     if not disease_id_opts or not ctx_id_opts:
-        st.error("Missing disease_id or context_id values in target_scores.")
+        st.warning("disease_id or context_id missing from some rows — context filtering may be limited.")
         return
 
     disease_display_map = {x: display_disease_label(x) for x in disease_id_opts}

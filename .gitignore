@@ -1,12 +1,29 @@
-# Large raw data files
-data/raw/*.tsv
-data/raw/*.gz
-data/raw/*.csv
-
+# Data files - too large for GitHub
+data/
 *.db
+*.db-shm
+*.db-wal
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.eggs/
+*.ipynb_checkpoints/
 .ipynb_checkpoints/
+
+# Jupyter
+*.ipynb
+
+# Environment
+.env
+venv/
+.venv/
+
+# OS
 .DS_Store
-outputs/
-Untitled.ipynb
+*.swp
+
+# Output
+output/
+logs/

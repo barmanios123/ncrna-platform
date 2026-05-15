@@ -99,6 +99,7 @@ def build_feature_matrix(
 ) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
 
+    # Expression / GEO-like evidence
     expr_q = """
         SELECT
             e.ncrna_id,
@@ -110,20 +111,27 @@ def build_feature_matrix(
             SUM(CASE WHEN e.direction = 'up' THEN 1 ELSE 0 END) AS n_up,
             SUM(CASE WHEN e.direction = 'down' THEN 1 ELSE 0 END) AS n_down
         FROM expression_evidence e
+        WHERE e.disease_id = :disease_id
+          AND e.context_id = :context_id
         GROUP BY e.ncrna_id
     """
     expr_df = _safe_read_sql(expr_q, conn)
     if not expr_df.empty:
         expr_df["de_consistency"] = expr_df.apply(
-            lambda r: max(r["n_up"], r["n_down"]) / r["n_datasets"]
-            if r["n_datasets"] > 0 else 0,
+            lambda r: (
+                max(r["n_up"], r["n_down"]) / r["n_datasets"]
+                if r["n_datasets"] > 0
+                else 0.0
+            ),
             axis=1,
         )
-        expr_df["log_tpm_disease"] = np.log1p(expr_df["mean_tpm_disease"])
+        expr_df["log_tpm_disease"] = np.log1p(expr_df["mean_tpm_disease"].fillna(0.0))
         expr_df["sig_rate"] = (
-            expr_df["n_sig_datasets"] / expr_df["n_datasets"].clip(lower=1)
+            expr_df["n_sig_datasets"]
+            / expr_df["n_datasets"].clip(lower=1)
         )
 
+    # Tractability / modality
     tract_q = """
         SELECT
             ncrna_id,
@@ -147,12 +155,14 @@ def build_feature_matrix(
             + tract_df["crispr_feasible"].fillna(0)
         )
         tract_df["nuclear_flag"] = (
-            tract_df["localization"].fillna("").astype(str).str.lower() == "nuclear"
+            tract_df["localization"].fillna("").astype(str).str.lower()
+            == "nuclear"
         ).astype(int)
         tract_df["isoform_complexity"] = np.log1p(
             tract_df["isoform_count"].fillna(0)
         )
 
+    # Perturbation evidence
     pert_q = """
         SELECT
             ncrna_id,
@@ -164,6 +174,7 @@ def build_feature_matrix(
     """
     pert_df = _safe_read_sql(pert_q, conn)
 
+    # Clinical links
     clin_q = """
         SELECT
             ncrna_id,
@@ -176,6 +187,7 @@ def build_feature_matrix(
     """
     clin_df = _safe_read_sql(clin_q, conn)
 
+    # Pathway / network
     pw_q = """
         SELECT
             ncrna_id,
@@ -187,6 +199,7 @@ def build_feature_matrix(
     """
     pw_df = _safe_read_sql(pw_q, conn)
 
+    # Literature
     lit_q = """
         SELECT
             ncrna_id,
@@ -200,6 +213,7 @@ def build_feature_matrix(
     """
     lit_df = _safe_read_sql(lit_q, conn)
 
+    # Master ncRNA registry
     master_q = """
         SELECT
             ncrna_id,
@@ -211,6 +225,7 @@ def build_feature_matrix(
     """
     master_df = pd.read_sql_query(master_q, conn)
 
+    # Curated liver-disease targets
     curated_q = """
         SELECT
             symbol,
@@ -235,17 +250,21 @@ def build_feature_matrix(
 
     conn.close()
 
+    # Start from master list
     df = master_df.copy()
 
+    # Merge by ncrna_id
     for sub_df in [expr_df, tract_df, pert_df, clin_df, pw_df, lit_df]:
         if not sub_df.empty:
             df = df.merge(sub_df, on="ncrna_id", how="left")
 
+    # Merge curated evidence by symbol
     if not curated_df.empty:
         curated_df["symbol"] = curated_df["symbol"].astype(str).str.strip()
         df["symbol"] = df["symbol"].astype(str).str.strip()
         df = df.merge(curated_df, on="symbol", how="left")
 
+    # Merge expression summary (GEO/TCGA) by symbol
     expr_summary_df = _load_expression_summary_features()
     if not expr_summary_df.empty:
         df["symbol"] = df["symbol"].astype(str).str.strip()
@@ -255,6 +274,7 @@ def build_feature_matrix(
         if "ensembl_id_expr" in df.columns:
             df = df.drop(columns=["ensembl_id_expr"])
 
+    # Basic cleaning
     numeric_cols = df.select_dtypes(include=["number"]).columns
     df[numeric_cols] = df[numeric_cols].fillna(0)
 
@@ -269,6 +289,7 @@ def build_feature_matrix(
         else 0
     )
 
+    # Backfill key columns used in risk and scoring
     if "mean_tau" not in df.columns:
         df["mean_tau"] = 0.0
     if "n_contradictory" not in df.columns:
@@ -278,6 +299,7 @@ def build_feature_matrix(
     if "isoform_count" not in df.columns:
         df["isoform_count"] = 0.0
 
+    # Risk flags
     df["risk_ubiquitous"] = (df["mean_tau"] < 0.4).astype(int)
     df["risk_contradictory_lit"] = (
         (df["n_contradictory"] / df["n_lit_statements"].clip(lower=1)) > 0.3

@@ -1,0 +1,15 @@
+{
+  "task_type": "regression",
+  "best_model_name": "gb_reg",
+  "cv_name": "GroupKFold",
+  "n_splits": 5,
+  "n_training_rows": 1000,
+  "n_numeric_features": 43,
+  "n_categorical_features": 12,
+  "model_type": "GradientBoostingRegressor",
+  "mae_cv": 0.0003217613293542714,
+  "rmse_cv": 0.0052122591433136104,
+  "r2_cv": 0.938114703013539,
+  "label_mean": 0.501,
+  "label_std": 0.020952326839756962
+}

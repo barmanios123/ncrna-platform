@@ -1,0 +1,13 @@
+ncrna_id,symbol,disease_id,context_id,mean_abs_log2fc,sig_rate,de_consistency,relevance_score,specificity_score,translational_score,confidence_tier,label,notes
+LNCRNA_001,HNF1A-AS1,DIS_001,CTX_001,2.047,0.0,0.0,0.2927,0.7131,0.7162,Tier 1 — High Confidence,0.9,
+LNCRNA_005,HULC,DIS_001,CTX_001,2.331,0.0,0.0,0.3333,0.6775,0.5692,Tier 2 — Moderate Confidence,0.75,
+LNCRNA_002,NEAT1,DIS_001,CTX_001,2.122,0.0,0.0,0.3034,0.7165,0.5504,Tier 2 — Moderate Confidence,0.75,
+LNCRNA_007,GAS5,DIS_001,CTX_001,0.133,1.0,0.0,0.3524,0.7878,0.5414,Tier 3 — Exploratory,0.55,
+LNCRNA_006,HOTAIR,DIS_001,CTX_001,0.189,0.0,0.0,0.027,0.5939,0.5154,Tier 3 — Exploratory,0.55,
+LNCRNA_009,MIAT,DIS_001,CTX_001,1.291,1.0,1.0,0.8513,0.8919,0.5091,Tier 3 — Exploratory,0.55,
+LNCRNA_003,MALAT1,DIS_001,CTX_001,0.34,0.0,0.0,0.0486,0.8342,0.4288,Tier 3 — Exploratory,0.55,
+LNCRNA_004,SNHG12,DIS_001,CTX_001,0.551,0.0,0.0,0.0788,0.8142,0.2775,Tier 4 — Low Priority,0.35,
+LNCRNA_010,XIST,DIS_001,CTX_001,1.508,0.0,0.0,0.2156,0.8002,0.256,Tier 4 — Low Priority,0.35,
+LNCRNA_008,LINC01116,DIS_001,CTX_001,0.424,0.0,0.0,0.0606,0.544,0.1875,Tier 4 — Low Priority,0.15,
+LNCRNA_011,H19,DIS_001,CTX_001,0.0,0.0,0.0,0.0,0.0,0.104,Tier 4 — Low Priority,0.15,
+LNCRNA_012,MEG3,DIS_001,CTX_001,0.0,0.0,0.0,0.0,0.0,0.0915,Tier 4 — Low Priority,0.15,

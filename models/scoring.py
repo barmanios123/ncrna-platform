@@ -6,6 +6,7 @@ Phase 2: curated target evidence integrated + raw provenance persistence
 import json
 import sqlite3
 
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import cross_val_score
@@ -22,6 +23,7 @@ except Exception as e:
 
 from models.features import build_feature_matrix
 
+
 SCORE_WEIGHTS = {
     "relevance": 0.22,
     "specificity": 0.12,
@@ -36,6 +38,7 @@ RELEVANCE_FEATURES = [
     "mean_abs_log2fc",
     "sig_rate",
     "de_consistency",
+    "log_tpm_disease",
 ]
 
 SPECIFICITY_FEATURES = [
@@ -143,30 +146,108 @@ GF_RISK_FEATURES = [
 ]
 
 
-def compute_component_score(df: pd.DataFrame, feature_cols: list) -> pd.Series:
-    cols = [c for c in feature_cols if c in df.columns]
-    if len(cols) == 0:
-        return pd.Series(0.0, index=df.index)
+def _safe_numeric(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series, errors="coerce")
 
-    sub = df[cols].copy().fillna(0)
-    if sub.shape[1] == 0:
-        return pd.Series(0.0, index=df.index)
+
+def _scale_series(series: pd.Series) -> pd.Series:
+    s = _safe_numeric(series)
+    non_null = s.dropna()
+
+    if non_null.empty:
+        return pd.Series(0.0, index=series.index, dtype=float)
+
+    if non_null.nunique() <= 1:
+        out = pd.Series(0.0, index=series.index, dtype=float)
+        out.loc[non_null.index] = 1.0
+        return out
 
     scaler = MinMaxScaler()
-    scaled = scaler.fit_transform(sub)
-    return pd.Series(scaled.mean(axis=1), index=df.index)
+    scaled = scaler.fit_transform(non_null.to_numpy().reshape(-1, 1)).flatten()
+
+    out = pd.Series(0.0, index=series.index, dtype=float)
+    out.loc[non_null.index] = scaled
+    return out.clip(0.0, 1.0)
+
+
+def compute_component_score(df: pd.DataFrame, feature_cols: list[str]) -> pd.Series:
+    cols = [c for c in feature_cols if c in df.columns]
+    if len(cols) == 0:
+        return pd.Series(0.0, index=df.index, dtype=float)
+
+    sub = df[cols].copy()
+    for col in cols:
+        sub[col] = pd.to_numeric(sub[col], errors="coerce")
+
+    valid_cols = [c for c in cols if sub[c].notna().any()]
+    if len(valid_cols) == 0:
+        return pd.Series(0.0, index=df.index, dtype=float)
+
+    scaled_sub = pd.DataFrame(index=sub.index)
+    for col in valid_cols:
+        scaled_sub[col] = _scale_series(sub[col])
+
+    return scaled_sub.mean(axis=1, skipna=True).fillna(0.0).clip(0.0, 1.0)
+
+
+def compute_relevance_score(df: pd.DataFrame) -> pd.Series:
+    mean_abs_log2fc_scaled = (
+        _scale_series(df["mean_abs_log2fc"])
+        if "mean_abs_log2fc" in df.columns
+        else pd.Series(0.0, index=df.index, dtype=float)
+    )
+    sig_rate = (
+        _safe_numeric(df["sig_rate"]).fillna(0.0).clip(0.0, 1.0)
+        if "sig_rate" in df.columns
+        else pd.Series(0.0, index=df.index, dtype=float)
+    )
+    de_consistency = (
+        _safe_numeric(df["de_consistency"]).fillna(0.0).clip(0.0, 1.0)
+        if "de_consistency" in df.columns
+        else pd.Series(0.0, index=df.index, dtype=float)
+    )
+    log_tpm_scaled = (
+        _scale_series(df["log_tpm_disease"])
+        if "log_tpm_disease" in df.columns
+        else pd.Series(0.0, index=df.index, dtype=float)
+    )
+
+    score = (
+        0.40 * mean_abs_log2fc_scaled
+        + 0.30 * sig_rate
+        + 0.20 * de_consistency
+        + 0.10 * log_tpm_scaled
+    )
+
+    return score.fillna(0.0).clip(0.0, 1.0)
+
+
+def compute_specificity_score(df: pd.DataFrame) -> pd.Series:
+    tau = (
+        _safe_numeric(df["mean_tau"]).fillna(0.0).clip(0.0, 1.0)
+        if "mean_tau" in df.columns
+        else pd.Series(0.0, index=df.index, dtype=float)
+    )
+    log_tpm_scaled = (
+        _scale_series(df["log_tpm_disease"])
+        if "log_tpm_disease" in df.columns
+        else pd.Series(0.0, index=df.index, dtype=float)
+    )
+
+    score = 0.70 * tau + 0.30 * log_tpm_scaled
+    return score.fillna(0.0).clip(0.0, 1.0)
 
 
 def compute_risk_penalty(df: pd.DataFrame) -> pd.Series:
     risk_raw = compute_component_score(df, RISK_FEATURES)
-    return 1.0 - risk_raw
+    return (1.0 - risk_raw).clip(0.0, 1.0)
 
 
 def compute_translational_scores(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy().fillna(0)
+    df = df.copy()
 
-    df["relevance_score"] = compute_component_score(df, RELEVANCE_FEATURES)
-    df["specificity_score"] = compute_component_score(df, SPECIFICITY_FEATURES)
+    df["relevance_score"] = compute_relevance_score(df)
+    df["specificity_score"] = compute_specificity_score(df)
     df["mechanism_score"] = compute_component_score(df, MECHANISM_FEATURES)
     df["tractability_score"] = compute_component_score(df, TRACTABILITY_FEATURES)
     df["human_evidence_score"] = compute_component_score(df, HUMAN_EVIDENCE_FEATURES)
@@ -181,9 +262,9 @@ def compute_translational_scores(df: pd.DataFrame) -> pd.DataFrame:
         + SCORE_WEIGHTS["human_evidence"] * df["human_evidence_score"]
         + SCORE_WEIGHTS["curated"] * df["curated_score"]
         + SCORE_WEIGHTS["risk"] * df["risk_score"]
-    ).clip(0, 1)
+    ).clip(0.0, 1.0)
 
-    def assign_tier(score):
+    def assign_tier(score: float) -> str:
         if score >= 0.68:
             return "Tier 1 — High Confidence"
         if score >= 0.42:
@@ -191,11 +272,11 @@ def compute_translational_scores(df: pd.DataFrame) -> pd.DataFrame:
         return "Tier 3 — Exploratory"
 
     df["confidence_tier"] = df["translational_score"].apply(assign_tier)
-    return df.sort_values("translational_score", ascending=False)
+    return df.sort_values("translational_score", ascending=False).reset_index(drop=True)
 
 
 def compute_geneformer_like_scores(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy().fillna(0)
+    df = df.copy()
 
     df["gf_regulatory_centrality"] = compute_component_score(df, GF_REGULATORY_FEATURES)
     df["gf_perturbation_impact"] = compute_component_score(df, GF_PERTURBATION_FEATURES)
@@ -203,7 +284,7 @@ def compute_geneformer_like_scores(df: pd.DataFrame) -> pd.DataFrame:
     df["gf_context_support"] = compute_component_score(df, GF_CONTEXT_FEATURES)
 
     risk_raw = compute_component_score(df, GF_RISK_FEATURES)
-    df["gf_risk_adjustment"] = 1.0 - risk_raw
+    df["gf_risk_adjustment"] = (1.0 - risk_raw).clip(0.0, 1.0)
 
     df["gf_geneformer_like_score"] = (
         0.30 * df["gf_regulatory_centrality"].fillna(0.0)
@@ -211,13 +292,23 @@ def compute_geneformer_like_scores(df: pd.DataFrame) -> pd.DataFrame:
         + 0.25 * df["gf_disease_shift"].fillna(0.0)
         + 0.10 * df["gf_context_support"].fillna(0.0)
         + 0.05 * df["gf_risk_adjustment"].fillna(0.0)
-    ).clip(0, 1)
+    ).clip(0.0, 1.0)
 
     return df
 
 
 def train_ranking_model(df: pd.DataFrame, label_col: str = "translational_score") -> dict:
     feature_cols = [c for c in ALL_FEATURE_COLS if c in df.columns]
+    if not feature_cols:
+        return {
+            "model": None,
+            "model_name": "none",
+            "feature_importances": {},
+            "cv_r2_mean": 0.0,
+            "cv_r2_std": 0.0,
+            "feature_cols": [],
+        }
+
     X = df[feature_cols].fillna(0).values
     y = df[label_col].values
 
@@ -449,8 +540,8 @@ def save_scores_to_db(
     db_path="ncrna_platform.db",
     disease_id="DIS_001",
     context_id="CTX_001",
-    model_version="v2.3",
-    gf_model_version="gf_v0.3",
+    model_version="v2.5",
+    gf_model_version="gf_v0.5",
 ):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -469,6 +560,10 @@ def save_scores_to_db(
             )
         if row.get("mean_abs_log2fc", 0) > 0:
             top_ev.append(f"Mean |log2FC| = {row.get('mean_abs_log2fc', 0):.2f}")
+        if row.get("sig_rate", 0) > 0:
+            top_ev.append(f"Significant dataset fraction = {row.get('sig_rate', 0):.2f}")
+        if row.get("de_consistency", 0) > 0:
+            top_ev.append(f"DE direction consistency = {row.get('de_consistency', 0):.2f}")
         if row.get("mean_clinical_r", 0) > 0:
             top_ev.append(f"Clinical correlation r = {row.get('mean_clinical_r', 0):.2f}")
         if row.get("n_high_conf_perts", 0) > 0:
@@ -633,13 +728,15 @@ def run_scoring_pipeline(
         "confidence_tier",
         "curated_tier_score",
         "relevance_score",
+        "specificity_score",
         "mechanism_score",
         "human_evidence_score",
     ]
     if "expr_mean_tcga_pancan" in scored_df.columns:
         display_cols.append("expr_mean_tcga_pancan")
 
-    print(scored_df[display_cols].head(10).to_string(index=False))
+    present_cols = [c for c in display_cols if c in scored_df.columns]
+    print(scored_df[present_cols].head(10).to_string(index=False))
     return scored_df, model_out
 
 

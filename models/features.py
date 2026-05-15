@@ -16,9 +16,9 @@ EXPR_SUMMARY_PATH = (
 )
 
 
-def _safe_read_sql(query: str, conn: sqlite3.Connection) -> pd.DataFrame:
+def _safe_read_sql(query: str, conn: sqlite3.Connection, params: dict | None = None) -> pd.DataFrame:
     try:
-        return pd.read_sql_query(query, conn)
+        return pd.read_sql_query(query, conn, params=params or {})
     except Exception:
         return pd.DataFrame()
 
@@ -99,37 +99,74 @@ def build_feature_matrix(
 ) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
 
-    # Expression / GEO-like evidence
-    expr_q = """
+    params = {"disease_id": disease_id, "context_id": context_id}
+
+    # NEW: aggregated expression features table built from expression_evidence
+    expr_feat_q = """
         SELECT
-            e.ncrna_id,
-            AVG(ABS(e.log2fc)) AS mean_abs_log2fc,
-            AVG(e.specificity_tau) AS mean_tau,
-            SUM(CASE WHEN e.padj < 0.05 THEN 1 ELSE 0 END) AS n_sig_datasets,
-            COUNT(*) AS n_datasets,
-            AVG(e.tpm_disease) AS mean_tpm_disease,
-            SUM(CASE WHEN e.direction = 'up' THEN 1 ELSE 0 END) AS n_up,
-            SUM(CASE WHEN e.direction = 'down' THEN 1 ELSE 0 END) AS n_down
-        FROM expression_evidence e
-        WHERE e.disease_id = :disease_id
-          AND e.context_id = :context_id
-        GROUP BY e.ncrna_id
+            ef.ncrna_id,
+            ef.disease_id,
+            ef.context_id,
+            ef.n_expression_studies,
+            ef.mean_abs_log2fc,
+            ef.mean_log2fc,
+            ef.max_abs_log2fc,
+            ef.sig_rate,
+            ef.de_consistency,
+            ef.min_padj,
+            ef.n_sig_expression_studies,
+            ef.n_up_sig_expression_studies,
+            ef.n_down_sig_expression_studies,
+            ef.mean_tpm_disease,
+            ef.mean_tpm_healthy,
+            ef.mean_tau,
+            ef.log_tpm_disease
+        FROM expression_features ef
+        WHERE ef.disease_id = :disease_id
+          AND ef.context_id = :context_id
     """
-    expr_df = _safe_read_sql(expr_q, conn)
-    if not expr_df.empty:
-        expr_df["de_consistency"] = expr_df.apply(
-            lambda r: (
-                max(r["n_up"], r["n_down"]) / r["n_datasets"]
-                if r["n_datasets"] > 0
-                else 0.0
-            ),
-            axis=1,
-        )
-        expr_df["log_tpm_disease"] = np.log1p(expr_df["mean_tpm_disease"].fillna(0.0))
-        expr_df["sig_rate"] = (
-            expr_df["n_sig_datasets"]
-            / expr_df["n_datasets"].clip(lower=1)
-        )
+    expr_feat_df = _safe_read_sql(expr_feat_q, conn, params=params)
+
+    # Fallback: direct aggregation from expression_evidence if expression_features is missing/empty
+    if expr_feat_df.empty:
+        expr_q = """
+            SELECT
+                e.ncrna_id,
+                AVG(ABS(e.log2fc)) AS mean_abs_log2fc,
+                AVG(e.log2fc) AS mean_log2fc,
+                MAX(ABS(e.log2fc)) AS max_abs_log2fc,
+                AVG(e.specificity_tau) AS mean_tau,
+                SUM(CASE WHEN e.padj <= 0.05 THEN 1 ELSE 0 END) AS n_sig_expression_studies,
+                COUNT(*) AS n_expression_studies,
+                AVG(e.tpm_disease) AS mean_tpm_disease,
+                AVG(e.tpm_healthy) AS mean_tpm_healthy,
+                MIN(e.padj) AS min_padj,
+                SUM(CASE WHEN e.padj <= 0.05 AND LOWER(e.direction) = 'up' THEN 1 ELSE 0 END) AS n_up_sig_expression_studies,
+                SUM(CASE WHEN e.padj <= 0.05 AND LOWER(e.direction) = 'down' THEN 1 ELSE 0 END) AS n_down_sig_expression_studies
+            FROM expression_evidence e
+            WHERE e.disease_id = :disease_id
+              AND e.context_id = :context_id
+            GROUP BY e.ncrna_id
+        """
+        expr_feat_df = _safe_read_sql(expr_q, conn, params=params)
+
+        if not expr_feat_df.empty:
+            expr_feat_df["sig_rate"] = (
+                expr_feat_df["n_sig_expression_studies"]
+                / expr_feat_df["n_expression_studies"].clip(lower=1)
+            )
+            expr_feat_df["de_consistency"] = expr_feat_df.apply(
+                lambda r: (
+                    max(r["n_up_sig_expression_studies"], r["n_down_sig_expression_studies"])
+                    / max(r["n_sig_expression_studies"], 1)
+                    if r["n_sig_expression_studies"] > 0
+                    else 0.0
+                ),
+                axis=1,
+            )
+            expr_feat_df["log_tpm_disease"] = np.log1p(
+                expr_feat_df["mean_tpm_disease"].fillna(0.0)
+            )
 
     # Tractability / modality
     tract_q = """
@@ -155,12 +192,9 @@ def build_feature_matrix(
             + tract_df["crispr_feasible"].fillna(0)
         )
         tract_df["nuclear_flag"] = (
-            tract_df["localization"].fillna("").astype(str).str.lower()
-            == "nuclear"
+            tract_df["localization"].fillna("").astype(str).str.lower() == "nuclear"
         ).astype(int)
-        tract_df["isoform_complexity"] = np.log1p(
-            tract_df["isoform_count"].fillna(0)
-        )
+        tract_df["isoform_complexity"] = np.log1p(tract_df["isoform_count"].fillna(0))
 
     # Perturbation evidence
     pert_q = """
@@ -254,8 +288,10 @@ def build_feature_matrix(
     df = master_df.copy()
 
     # Merge by ncrna_id
-    for sub_df in [expr_df, tract_df, pert_df, clin_df, pw_df, lit_df]:
+    for sub_df in [expr_feat_df, tract_df, pert_df, clin_df, pw_df, lit_df]:
         if not sub_df.empty:
+            merge_cols = [c for c in sub_df.columns if c not in ["disease_id", "context_id"]]
+            sub_df = sub_df[merge_cols].copy()
             df = df.merge(sub_df, on="ncrna_id", how="left")
 
     # Merge curated evidence by symbol
@@ -279,9 +315,7 @@ def build_feature_matrix(
     df[numeric_cols] = df[numeric_cols].fillna(0)
 
     if "in_tcga_pancan_expr" in df.columns:
-        df["in_tcga_pancan_expr"] = (
-            df["in_tcga_pancan_expr"].fillna(False).astype(int)
-        )
+        df["in_tcga_pancan_expr"] = df["in_tcga_pancan_expr"].fillna(False).astype(int)
 
     df["curated_exists"] = (
         (df["curated_record_count"] > 0).astype(int)
@@ -289,15 +323,57 @@ def build_feature_matrix(
         else 0
     )
 
-    # Backfill key columns used in risk and scoring
-    if "mean_tau" not in df.columns:
-        df["mean_tau"] = 0.0
-    if "n_contradictory" not in df.columns:
-        df["n_contradictory"] = 0.0
-    if "n_lit_statements" not in df.columns:
-        df["n_lit_statements"] = 0.0
-    if "isoform_count" not in df.columns:
-        df["isoform_count"] = 0.0
+    # Backfill key columns used in scoring / risk
+    required_defaults = {
+        "n_expression_studies": 0.0,
+        "mean_abs_log2fc": 0.0,
+        "mean_log2fc": 0.0,
+        "max_abs_log2fc": 0.0,
+        "sig_rate": 0.0,
+        "de_consistency": 0.0,
+        "min_padj": 1.0,
+        "n_sig_expression_studies": 0.0,
+        "n_up_sig_expression_studies": 0.0,
+        "n_down_sig_expression_studies": 0.0,
+        "mean_tpm_disease": 0.0,
+        "mean_tpm_healthy": 0.0,
+        "mean_tau": 0.0,
+        "log_tpm_disease": 0.0,
+        "n_contradictory": 0.0,
+        "n_lit_statements": 0.0,
+        "isoform_count": 0.0,
+        "aso_accessible": 0.0,
+        "sirna_compatible": 0.0,
+        "small_mol_bindable": 0.0,
+        "crispr_feasible": 0.0,
+        "modality_breadth": 0.0,
+        "n_pathways": 0.0,
+        "max_hub_correlation": 0.0,
+        "mean_lit_confidence": 0.0,
+        "n_unique_papers": 0.0,
+        "n_perturbation_studies": 0.0,
+        "mean_pert_effect": 0.0,
+        "n_high_conf_perts": 0.0,
+        "n_clinical_studies": 0.0,
+        "mean_clinical_r": 0.0,
+        "n_sig_clinical": 0.0,
+        "n_prognostic": 0.0,
+        "conservation_score": 0.0,
+        "transcript_count": 0.0,
+        "curated_tier_score": 0.0,
+        "curated_contradiction_flag": 0.0,
+        "curated_hcc_flag": 0.0,
+        "curated_masld_flag": 0.0,
+        "curated_fibrosis_flag": 0.0,
+        "curated_mash_flag": 0.0,
+        "curated_record_count": 0.0,
+    }
+
+    for col, default_val in required_defaults.items():
+        if col not in df.columns:
+            df[col] = default_val
+        else:
+            df[col] = df[col].fillna(default_val)
 
     # Risk flags
     df["risk_ubiquitous"] = (df["mean_tau"] < 0.4).astype(int)
@@ -312,4 +388,4 @@ def build_feature_matrix(
 
 if __name__ == "__main__":
     feat_df = build_feature_matrix()
-    print(feat_df.head())
+    print(feat_df.head().to_string(index=False))
